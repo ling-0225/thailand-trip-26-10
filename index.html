@@ -31,7 +31,7 @@ dialog label{display:block;font-size:13px;margin-top:8px;color:#666}dialog input
 <header><h1 id="ttl"></h1><div class="bar">
 <span class="pill" id="st">本機儲存</span>
 <a href="https://maps.app.goo.gl/sPNx4BPpBKmEpB5W8" target="_blank" rel="noopener">🗺 Google 地址清單</a>
-<button onclick="syncDlg.showModal()">☁ 線上同步</button>
+<button onclick="pull(true)">☁ 立即同步</button>
 <button onclick="exportJ()">匯出</button><button onclick="document.getElementById('imp').click()">匯入</button>
 <button onclick="editTitle()">改標題</button><button onclick="resetD()">重設</button>
 <input type="file" id="imp" accept=".json" hidden onchange="importJ(event)"></div></header>
@@ -65,7 +65,7 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 const link=s=>esc(s).replace(/(https?:\/\/[^\s<、]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
 const hdr=()=>{const h={'Content-Type':'application/json',Accept:'application/json'},t=localStorage.getItem('tok');if(t)h.Authorization='Bearer '+t;return h};
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',2500)}
-function save(){S.updated=Date.now();localStorage.setItem('trip3',JSON.stringify(S));render();clearTimeout(pt);if(bid&&localStorage.getItem('tok'))pt=setTimeout(push,800)}
+function save(){S.updated=Date.now();localStorage.setItem('trip3',JSON.stringify(S));render();clearTimeout(pt);pt=setTimeout(push,600)}
 const NOMAP=/酒店早餐|游泳池|Check out|回酒店|轉酒店|回程|去程|Check-in|Gate 32|行李寄存/;
 const cidOf=x=>x.cid||((x.map||'').match(/cid=(\d+)/)||[])[1]||'';
 const q=(x,n)=>n.replace(/\(.*?\)/g,'')+' Bangkok';
@@ -117,14 +117,11 @@ function resetD(){if(confirm('重設為原始行程?(本機修改會消失)')){S
 function exportJ(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='trip.json';a.click()}
 function importJ(e){const r=new FileReader();r.onload=()=>{try{S=JSON.parse(r.result);save();toast('已匯入')}catch(x){alert('檔案格式錯誤')}};r.readAsText(e.target.files[0])}
 function stat(t){$('st').textContent=t}
-async function push(){if(!bid)return;try{const r=await fetch(API+'/'+bid,{method:'PUT',headers:hdr(),body:JSON.stringify(S)});stat(r.ok?'☁ 已同步 '+new Date().toLocaleTimeString():'⚠ 同步失敗 ('+r.status+')')}catch(e){stat('⚠ 同步失敗')}}
-async function pull(){if(!bid)return;try{const r=await fetch(API+'/'+bid,{headers:{Accept:'application/json'}});const d=await r.json();if(d.updated>(S.updated||0)){S=d;localStorage.setItem('trip3',JSON.stringify(S));render();toast('已更新最新行程')}else if(d.updated<S.updated&&localStorage.getItem('tok'))push();stat('☁ 已連線 '+new Date().toLocaleTimeString())}catch(e){stat('⚠ 同步失敗')}}
-function setBid(id){bid=id;localStorage.setItem('bid',id);location.hash='blob='+id;$('bid').value=id}
-async function createCloud(){const t=$('tok').value.trim();if(t)localStorage.setItem('tok',t);if(!localStorage.getItem('tok'))return alert('請先輸入 Personal Access Token');
- try{const r=await fetch(API,{method:'POST',headers:hdr(),body:JSON.stringify(S)});if(!r.ok)return alert('建立失敗 ('+r.status+'),請檢查 Token');
- let id=(r.headers.get('Location')||'').split('/').pop();if(!id)id=prompt('無法自動取得 ID,請貼上回傳的 ID');if(id){setBid(id);toast('已建立,請複製分享連結')}}catch(e){alert('建立失敗,請檢查網絡')}}
-function joinCloud(){const t=$('tok').value.trim();if(t)localStorage.setItem('tok',t);const id=$('bid').value.trim();if(id){setBid(id);pull();syncDlg.close()}}
-function copyLink(){if(!bid)return alert('請先建立雲端行程');navigator.clipboard.writeText(location.href.split('#')[0]+'#blob='+bid).then(()=>toast('已複製連結'))}
-function leaveCloud(){bid='';localStorage.removeItem('bid');location.hash='';stat('本機儲存')}
-render();stat(bid?'☁ 連線中':'本機儲存');if(bid)pull();setInterval(pull,20000);
+render();const DB="https://thailand-trip-2610-default-rtdb.asia-southeast1.firebasedatabase.app/trip.json";
+function norm(d){d.days=d.days||[];d.days.forEach(x=>{x.items=x.items||[];x.items.forEach(i=>{i.comments=i.comments||[]})});d.wish=d.wish||[];d.notes=d.notes||[];return d}
+function apply(d){if(!d){push();return}norm(d);if((d.updated||0)>(S.updated||0)){S=d;localStorage.setItem('trip3',JSON.stringify(S));render();toast('已更新最新行程')}stat('☁ 已同步 '+new Date().toLocaleTimeString())}
+async function push(){try{const r=await fetch(DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)});stat(r.ok?'☁ 已同步 '+new Date().toLocaleTimeString():'⚠ 同步失敗 ('+r.status+')')}catch(e){stat('⚠ 同步失敗')}}
+async function pull(manual){try{const r=await fetch(DB);if(!r.ok){stat('⚠ 讀取失敗 ('+r.status+')');return}const d=await r.json();if(!d){push();return}norm(d);if((d.updated||0)>(S.updated||0))apply(d);else if((d.updated||0)<(S.updated||0))push();else stat('☁ 已同步 '+new Date().toLocaleTimeString());if(manual)toast('已同步')}catch(e){stat('⚠ 同步失敗')}}
+function live(){try{const es=new EventSource(DB);const h=e=>{try{const m=JSON.parse(e.data);if(m.path==='/'&&e.type==='put')apply(m.data);else pull()}catch(x){}};es.addEventListener('put',h);es.addEventListener('patch',h);es.onerror=()=>stat('⚠ 重新連線中…')}catch(e){}}
+stat('☁ 連線中');pull();live();setInterval(pull,30000);
 </script></body></html>
